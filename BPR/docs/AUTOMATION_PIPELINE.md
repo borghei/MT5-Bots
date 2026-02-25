@@ -107,21 +107,28 @@ else
 fi
 ```
 
-### 2.4 Using Z: Drive for Project Files
+### 2.4 CRITICAL: MetaEditor Fails with Spaces in Compile Path (Build 5640)
 
-To compile a file outside the MT5 directory (e.g., from your project folder):
+**Confirmed**: MetaEditor 5640 via Wine silently fails when `/compile:` path contains spaces. The `.ex5` is not produced and no error is shown.
+
+**Workaround**: Copy `.mq5` to a path without spaces (`C:\temp\`), compile there, then copy `.ex5` to the target directory.
 
 ```bash
-# Your file: /Users/borghei/Projects/MT5-Bots/BPR/src/BPR_Bot.mq5
-# Wine path: Z:\Users\borghei\Projects\MT5-Bots\BPR\src\BPR_Bot.mq5
+# Step 1: Copy source to temp dir (no spaces in path)
+cp "$MQ5_SOURCE" "$WINEPREFIX/drive_c/temp/$(basename $MQ5_SOURCE)"
 
-WINEPREFIX="$WINEPREFIX" "$WINE" "C:\\Program Files\\MetaTrader 5\\metaeditor64.exe" \
-  /compile:"Z:\\Users\\borghei\\Projects\\MT5-Bots\\BPR\\src\\BPR_Bot.mq5" \
-  /include:"C:\\Program Files\\MetaTrader 5\\MQL5" \
-  /log 2>/dev/null
+# Step 2: Compile from temp dir
+WINEPREFIX="$WINEPREFIX" WINEDLLOVERRIDES="$WINEDLLOVERRIDES" \
+  "$WINE" "C:\\Program Files\\MetaTrader 5\\metaeditor64.exe" \
+  "/compile:C:\\temp\\$(basename $MQ5_SOURCE)" \
+  "/include:C:\\Program Files\\MetaTrader 5\\MQL5" \
+  "/log" 2>/dev/null
+
+# Step 3: Copy .ex5 to target directory
+cp "$WINEPREFIX/drive_c/temp/${MQ5_SOURCE%.mq5}.ex5" "$TARGET_DIR/"
 ```
 
-**Better approach**: Copy `.mq5` to `MQL5/Experts/` before compilation, so the `.ex5` ends up where MT5 expects it.
+**Tested and confirmed working** on build 5640, Wine 10.0, macOS Apple Silicon (2026-02-25).
 
 ---
 
@@ -195,18 +202,46 @@ WINEPREFIX="$WINEPREFIX" \
   "/Applications/MetaTrader 5.app/Contents/SharedSupport/wine/bin/wineserver" -k 2>/dev/null
 ```
 
-### 3.4 Key Facts About Backtesting via Wine
+### 3.4 Key Facts About Backtesting via Wine (CONFIRMED Build 5640)
 
 | Fact | Detail |
 |------|--------|
 | Display needed? | **Yes** — terminal is a GUI app. Window appears on macOS screen. |
 | Fully headless? | **No on macOS** — Wine uses Mac Driver (not X11). Window must render. |
-| `ShutdownTerminal=1` | **Works** — MT5 exits cleanly (confirmed from actual logs) |
+| `ShutdownTerminal=1` | **CONFIRMED WORKING** — terminal exits cleanly after test completes |
 | Broker login needed? | **Yes** — terminal authenticates for historical data |
 | Password storage | In `accounts.dat` — cached after first manual login |
-| Offline backtest? | Partially — uses cached history if available |
-| Performance | ~2-3x slower than native Windows (Rosetta 2 + Wine overhead) |
-| Report location | Relative to MT5 root (default) or AppData folder |
+| Performance | ~15 seconds total (1 month M15 OHLC), 0.1s computation only |
+| Report location | `Tester/` directory under MT5 root (confirmed) |
+| Report files | `.htm` + 4 `.png` files (equity curve, histograms, MFE/MAE, holding time) |
+
+### 3.5 CRITICAL: Known Gotchas (All Confirmed 2026-02-25)
+
+**1. INI path MUST NOT contain spaces**
+```
+WRONG:  /config:"C:\Program Files\MetaTrader 5\config\backtest.ini"  → silently fails
+RIGHT:  /config:C:\temp\backtest.ini  → works
+```
+Copy INI to `C:\temp\` before launching.
+
+**2. EA path is relative to MQL5/Experts/ (NO Experts\ prefix)**
+```
+WRONG:  Expert=Experts\Advisors\ExpertMACD    → "not found" (looks in Experts\Experts\)
+RIGHT:  Expert=Advisors\ExpertMACD            → works
+```
+MT5 tester auto-prepends `Experts\` to the Expert= value.
+
+**3. Port 3000 must be free**
+MT5 Strategy Tester agent binds to `127.0.0.1:3000`. If another process (Node.js, etc.) occupies this port, the backtest silently produces an empty report with all zeros.
+```bash
+# Pre-flight check
+lsof -iTCP:3000 -sTCP:LISTEN
+# Kill if needed
+kill $(lsof -t -iTCP:3000 -sTCP:LISTEN) 2>/dev/null
+```
+
+**4. Leverage format**
+Use `Leverage=500` (not `Leverage=1:500`). Confirmed working.
 
 ### 3.5 Estimated Backtest Duration (XAUUSD M15, 1 year)
 

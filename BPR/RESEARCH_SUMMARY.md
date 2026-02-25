@@ -80,27 +80,35 @@ In MQL5 with `ArraySetAsSeries(rates, true)` (bar 0 = current):
 ### 1.2 Bullish FVG — Exact Definition
 
 ```
-Condition:  Low[candle3] > High[candle1]
-            i.e., Low[i] > High[i+2]
+Conditions: Low[candle3] > High[candle1]           — gap exists
+            AND Close[candle2] > High[candle1]     — close confirms direction
+
+Series:     Low[i] > High[i+2]  AND  Close[i+1] > High[i+2]
+Non-series: Low[i] > High[i-2]  AND  Close[i-1] > High[i-2]
 
 Zone:       Bottom = High[candle1] = High[i+2]
             Top    = Low[candle3]  = Low[i]
 
 Meaning:    Price surged upward so fast that candles 1 and 3 wicks don't overlap.
             The gap between them is where price was never traded.
+            The close-confirmation ensures the middle candle (displacement) confirms intent.
             Expected to act as SUPPORT on retracement.
 ```
 
 ### 1.3 Bearish FVG — Exact Definition
 
 ```
-Condition:  High[candle3] < Low[candle1]
-            i.e., High[i] < Low[i+2]
+Conditions: High[candle3] < Low[candle1]           — gap exists
+            AND Close[candle2] < Low[candle1]      — close confirms direction
+
+Series:     High[i] < Low[i+2]  AND  Close[i+1] < Low[i+2]
+Non-series: High[i] < Low[i-2]  AND  Close[i-1] < Low[i-2]
 
 Zone:       Top    = Low[candle1]  = Low[i+2]
             Bottom = High[candle3] = High[i]
 
 Meaning:    Price dropped so fast that candles 1 and 3 wicks don't overlap.
+            The close-confirmation ensures the middle candle confirms intent.
             Expected to act as RESISTANCE on retracement.
 ```
 

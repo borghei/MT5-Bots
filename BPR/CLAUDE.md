@@ -7,14 +7,20 @@ Primary pair: **XAUUSD**, secondary: **BTCUSD**, on GTC Global Trade broker.
 ## Key Paths (macOS + Wine)
 ```bash
 WINE="/Applications/MetaTrader 5.app/Contents/SharedSupport/wine/bin/wine64"
-WINEPREFIX="~/Library/Application Support/net.metaquotes.wine.metatrader5"
+WINEPREFIX="$HOME/Library/Application Support/net.metaquotes.wine.metatrader5"
 MT5_ROOT="$WINEPREFIX/drive_c/Program Files/MetaTrader 5"
 EXPERTS="$MT5_ROOT/MQL5/Experts"
 TESTER_PRESETS="$MT5_ROOT/MQL5/Profiles/Tester"
 TESTER="$MT5_ROOT/Tester"
 CONFIG="$MT5_ROOT/config"
 # Wine drive: C: → drive_c/, Z: → / (macOS root)
+# MT5 build: 5640 (updated 2026-02-25), portable mode enabled
 ```
+
+## CRITICAL: No Live Trading
+**This account (5935483) is for backtesting and market data ONLY.**
+Do NOT place real trades. Only run in Strategy Tester.
+Real trading requires explicit user approval.
 
 ## Broker: GTC Global Trade
 - Server: `GTCGlobalTrade-Server`, Login: `5935483`
@@ -35,6 +41,9 @@ CONFIG="$MT5_ROOT/config"
 ## Critical Technical Rules (Every One Can Cost Money)
 
 ### FVG Detection
+- **Two conditions required** (gap + close confirmation):
+  - Bullish: `Low[i] > High[i+2]` AND `Close[i+1] > High[i+2]` (series indexing)
+  - Bearish: `High[i] < Low[i+2]` AND `Close[i+1] < Low[i+2]` (series indexing)
 - Boundaries = **wicks** (High/Low), NEVER bodies (Open/Close)
 - Only scan from **bar 1** (last completed) backward — NEVER bar 0 (still forming)
 - Check temporal continuity — reject FVGs spanning weekend/holiday gaps
@@ -103,11 +112,20 @@ double OnTester() {
 
 **NEVER use full 1:2000 leverage on BTCUSD.** A 0.05% move at 2000:1 = instant liquidation.
 
+## Wine CLI Gotchas (CONFIRMED Build 5640)
+- **Paths with spaces FAIL silently** — both `/compile:` and `/config:` args
+- **Workaround**: Stage files in `C:\temp\` (maps to `$WINEPREFIX/drive_c/temp/`)
+- **EA path in INI**: `Expert=BPR_Bot` NOT `Expert=Experts\BPR_Bot` (auto-prepends Experts\)
+- **Port 3000 must be free** — tester agent binds there. Check with `lsof -iTCP:3000`
+- **Leverage format**: `Leverage=500` (not `1:500`)
+
 ## Iteration Workflow
-1. Modify code/params → `compile.sh` → check .ex5 + .log
-2. Generate .set (UTF-16 LE) → `MQL5/Profiles/Tester/`
-3. Generate .ini (UTF-16 LE) → `config/`
-4. Launch: `terminal64.exe /config:backtest.ini` via Wine
-5. Wait for exit → kill wineserver
-6. Parse report → analyze metrics
-7. Diagnose → propose changes → git commit → repeat
+1. Copy .mq5 to `C:\temp\` → compile via MetaEditor → check .ex5 + .log
+2. Copy .ex5 to `MQL5/Experts/`
+3. Generate .set (UTF-16 LE) → `MQL5/Profiles/Tester/`
+4. Generate .ini (UTF-16 LE) → `C:\temp\` (NOT in path with spaces)
+5. Check port 3000 is free
+6. Launch: `terminal64.exe /config:C:\temp\backtest.ini /portable` via Wine
+7. Wait for exit → kill wineserver
+8. Parse report from `Tester/` → analyze metrics
+9. Diagnose → propose changes → git commit → repeat
