@@ -1,637 +1,586 @@
 # BPR Bot - Research Summary & Master Plan (Phase 0)
 
-*Updated: 2026-02-24 — incorporates broker intel, system discovery, and user requirements*
+*Updated: 2026-02-25 — Deep research pass: every detail that can cost money*
 
 ---
 
 ## 0. Environment & Broker Discovery
 
-### 0.1 Local MT5 Installation (Discovered)
+### 0.1 Local MT5 Installation
 
-MT5 is already installed via the **official MetaQuotes Wine bundle** (Wine 10.0, Rosetta 2 on Apple Silicon):
+MT5 installed via **official MetaQuotes Wine 10.0 bundle** (Rosetta 2 on Apple Silicon):
 
-| Component | Path |
-|-----------|------|
-| **App bundle** | `/Applications/MetaTrader 5.app` (v5.0.5260) |
-| **Wine binary** | `/Applications/MetaTrader 5.app/Contents/SharedSupport/wine/bin/wine64` |
-| **Wine prefix** | `~/Library/Application Support/net.metaquotes.wine.metatrader5/` |
-| **terminal64.exe** | `...drive_c/Program Files/MetaTrader 5/terminal64.exe` |
-| **metaeditor64.exe** | `...drive_c/Program Files/MetaTrader 5/metaeditor64.exe` |
-| **metatester64.exe** | `...drive_c/Program Files/MetaTrader 5/metatester64.exe` |
-| **MQL5 root** | `...drive_c/Program Files/MetaTrader 5/MQL5/` |
-| **Experts dir** | `.../MQL5/Experts/` (has Advisors/, Examples/, Free Robots/) |
-| **Include dir** | `.../MQL5/Include/` (standard library with Trade/Trade.mqh) |
-| **Tester dir** | `.../MetaTrader 5/Tester/` (empty — no backtests run yet) |
-| **Config dir** | `.../MetaTrader 5/config/` (terminal.ini, common.ini, etc.) |
+| Component | macOS Path | Wine Path |
+|-----------|-----------|-----------|
+| App bundle | `/Applications/MetaTrader 5.app` (v5.0.5260) | — |
+| Wine binary | `.../SharedSupport/wine/bin/wine64` | — |
+| Wine prefix | `~/Library/Application Support/net.metaquotes.wine.metatrader5/` | — |
+| terminal64.exe | `...drive_c/Program Files/MetaTrader 5/terminal64.exe` | `C:\Program Files\MetaTrader 5\terminal64.exe` |
+| metaeditor64.exe | same parent | `C:\Program Files\MetaTrader 5\metaeditor64.exe` |
+| MQL5 root | `.../MetaTrader 5/MQL5/` | `C:\...\MQL5\` |
+| Experts | `.../MQL5/Experts/` | `C:\...\MQL5\Experts\` |
+| Include | `.../MQL5/Include/` (has Trade/Trade.mqh) | `C:\...\MQL5\Include\` |
+| Tester presets | `.../MQL5/Profiles/Tester/` | `C:\...\MQL5\Profiles\Tester\` |
+| Tester dir | `.../MetaTrader 5/Tester/` (empty) | `C:\...\Tester\` |
+| Config dir | `.../MetaTrader 5/config/` | `C:\...\config\` |
+| Logs | `.../MetaTrader 5/logs/` | `C:\...\logs\` |
+| Terminal data | `...drive_c/users/user/AppData/Roaming/MetaQuotes/Terminal/D0E8209F77C8CF37AD8BF550E51FF075/` | — |
 
-**No Parallels needed.** The Wine bundle is sufficient for both development and automation.
+Wine drive mapping: `C:` → `drive_c/`, `Z:` → `/` (macOS root). Use `winepath -w` / `winepath -u` to convert.
 
 ### 0.2 Broker: GTC Global Trade
 
 | Detail | Value |
 |--------|-------|
-| **Portal** | mygtcportal.com (main site: gtcfx.com) |
-| **MT5 server** | `GTCGlobalTrade-Server` |
-| **Login** | `5935483` |
-| **Account types** | Standard (1:2000), Pro (1:2000), ECN (1:500) |
-| **Likely account mode** | **Hedging** (most retail forex brokers; needs confirmation via diagnostic script) |
-| **Server GMT offset** | **Unknown — likely GMT+2 / GMT+3 (DST)** (standard broker convention; needs confirmation) |
-| **Symbols** | Likely `XAUUSD`, `BTCUSD` (standard naming; needs confirmation) |
-| **Filling modes** | Unknown (needs confirmation) |
-| **Regulation** | FCA + ASIC (tier-1), VFSC + FSC (tier-3 offshore) |
-| **Caution** | Mixed reviews on withdrawals for large amounts; platform stability generally positive |
+| Portal | mygtcportal.com / gtcfx.com |
+| MT5 server | `GTCGlobalTrade-Server` |
+| Login | `5935483` |
+| Account types | Standard (1:2000), Pro (1:2000), ECN (1:500) |
+| Likely account mode | **Hedging** (most retail forex; must confirm) |
+| Likely GMT offset | **GMT+2 winter / GMT+3 summer** (EET/EEST standard; must confirm) |
+| Regulation | FCA + ASIC (tier-1), VFSC + FSC (tier-3 offshore) |
+| Caution | Mixed withdrawal reviews for large amounts |
 
-### 0.3 What Must Be Confirmed (Diagnostic Script)
+### 0.3 Diagnostic Script Required (Phase 0.5)
 
-Before coding the EA, a small MQL5 script must be run on the live server to get definitive answers:
+A diagnostic MQL5 script must run once on the live server to get definitive values:
 
 ```
-1. ACCOUNT_MARGIN_MODE         → hedging or netting?
-2. TimeCurrent() - TimeGMT()   → server GMT offset (hours)
-3. Symbol names for gold/BTC   → exact strings (XAUUSD? XAUUSDm? GOLD?)
-4. SYMBOL_FILLING_MODE         → FOK, IOC, or both?
-5. SYMBOL_TRADE_EXEMODE        → instant, market, exchange, request?
-6. SYMBOL_VOLUME_MIN/MAX/STEP  → lot sizing constraints per symbol
-7. SYMBOL_TRADE_TICK_VALUE/SIZE → for position sizing formula
-8. SYMBOL_POINT / SYMBOL_DIGITS → price precision per symbol
+1. ACCOUNT_MARGIN_MODE             → hedging or netting?
+2. TimeCurrent() - TimeGMT()       → server GMT offset (but see TimeGMT caveats below)
+3. All symbols containing XAU/BTC  → exact naming (XAUUSD? XAUUSDm? GOLD?)
+4. SYMBOL_FILLING_MODE per symbol  → FOK, IOC, or both?
+5. SYMBOL_TRADE_EXEMODE            → instant, market, exchange, request?
+6. SYMBOL_VOLUME_MIN/MAX/STEP      → lot constraints per symbol
+7. SYMBOL_TRADE_TICK_VALUE/SIZE    → for position sizing formula
+8. SYMBOL_POINT / SYMBOL_DIGITS   → price precision per symbol
+9. SYMBOL_TRADE_CONTRACT_SIZE      → units per lot (100 oz for gold? 1 BTC?)
+10. SYMBOL_TRADE_STOPS_LEVEL       → minimum SL/TP distance in points
+11. SYMBOL_TRADE_FREEZE_LEVEL      → modification freeze zone
+12. SYMBOL_SPREAD (current)        → typical spread
+13. SYMBOL_SWAP_LONG/SHORT         → overnight costs
+14. SYMBOL_SWAP_ROLLOVER3DAYS      → triple-swap day
 ```
-
-### 0.4 Existing Code References
-
-| File | Description | Usefulness |
-|------|-------------|------------|
-| `github.com/borghei/MQ5-BPR/BPR_Bot.mq5` (V1) | Single FVG detector mislabeled as BPR. 457 lines. Uses ATR displacement. | Low — wrong strategy. |
-| `github.com/borghei/MQ5-BPR/BPR_Bot_V2.mq5` (V2) | Real BPR detector. 1413 lines. 10 critical bugs. | Medium — correct BPR overlap logic, but needs full rewrite. |
-| `~/Desktop/All/BPR/V2/ICT_BPR.mq5` | **Indicator** (not EA). Proper FVG/BPR detection with ATR-based filter, IFVG inversion logic, proximal/distal zones, alert system. 630 lines. | **High** — cleanest FVG detection code. Good reference for filter thresholds. |
-
-**Key insight from ICT_BPR.mq5 indicator**: It uses a 4-tier ATR-based FVG filter (Very Aggressive: 0.1x ATR, Aggressive: 0.2x, Defensive: 0.3x, Very Defensive: 0.5x) and correctly identifies FVG inversions (when price closes through an FVG, it flips polarity). We should incorporate the ATR-based filter into the EA.
 
 ---
 
-## 1. Strategy Understanding
+## 1. Strategy: Fair Value Gaps (FVGs) — Precise Definitions
 
-### 1.1 Fair Value Gaps (FVGs)
+### 1.1 Candle Ordering (Source of Most Bugs)
 
-An FVG is a three-candle price imbalance where price moved so aggressively that it left an "untraded" zone. The gap is measured between the **wicks** of candles 1 and 3 (not bodies).
+**Chronological order (oldest → newest on chart): Candle 1 → Candle 2 → Candle 3**
 
-**Bullish FVG** (bars indexed present-to-past: `[i]`, `[i+1]`, `[i+2]`):
-- `Low[i] > High[i+2]` — the low of the newest candle is above the high of the oldest candle
-- FVG zone: `[High[i+2], Low[i]]`
-- Represents aggressive buying — price expected to retrace into this zone and find support
+In MQL5 with `ArraySetAsSeries(rates, true)` (bar 0 = current):
+- Candle 1 (oldest) = `rates[i+2]` — highest bar index
+- Candle 2 (middle, displacement) = `rates[i+1]`
+- Candle 3 (newest) = `rates[i]` — lowest bar index
 
-**Bearish FVG** (same indexing):
-- `High[i] < Low[i+2]` — the high of the newest candle is below the low of the oldest candle
-- FVG zone: `[High[i], Low[i+2]]`
-- Represents aggressive selling — price expected to retrace and find resistance
+**This is the #1 source of off-by-one errors.** When scanning bar-by-bar, `i` is the newest candle, `i+2` is the oldest.
 
-**Key findings:**
-- An FVG that gets violated (price closes through it) becomes an **Inversion FVG (IFVG)** — polarity flips
-- Micro-FVGs (tiny gaps) are noise — use ATR-based filter (0.1x to 0.5x ATR threshold, configurable)
-- FVGs should NOT be traded in isolation — need HTF trend + session + structure confluence
+### 1.2 Bullish FVG — Exact Definition
 
-### 1.2 Balanced Price Ranges (BPRs)
+```
+Condition:  Low[candle3] > High[candle1]
+            i.e., Low[i] > High[i+2]
 
-A BPR is the **overlapping zone** where a bullish FVG and a bearish FVG coexist. Double imbalance = stronger zone.
+Zone:       Bottom = High[candle1] = High[i+2]
+            Top    = Low[candle3]  = Low[i]
 
-**Formation:**
-1. Price makes a strong move in one direction → leaves an FVG
-2. Price reverses aggressively → leaves an opposite FVG
-3. If the two FVGs **overlap in price** → the overlap = BPR
-4. BPR bounds = `[max(bull_FVG_low, bear_FVG_low), min(bull_FVG_high, bear_FVG_high)]`
+Meaning:    Price surged upward so fast that candles 1 and 3 wicks don't overlap.
+            The gap between them is where price was never traded.
+            Expected to act as SUPPORT on retracement.
+```
 
-**Direction = which FVG formed LAST:**
-- **Bullish BPR**: bearish FVG first → bullish FVG overlaps it → LONG entries
-- **Bearish BPR**: bullish FVG first → bearish FVG overlaps it → SHORT entries
+### 1.3 Bearish FVG — Exact Definition
 
-**SL placement (PATCH 2):**
-- `full_high` = max of both FVGs' upper edges
-- `full_low` = min of both FVGs' lower edges
-- For LONG: SL = `full_low - buffer`
-- For SHORT: SL = `full_high + buffer`
+```
+Condition:  High[candle3] < Low[candle1]
+            i.e., High[i] < Low[i+2]
 
-### 1.3 Market Structure
+Zone:       Top    = Low[candle1]  = Low[i+2]
+            Bottom = High[candle3] = High[i]
 
-**Swing detection**: Bar whose High > High of N bars on each side (swing high). Default N=5 for reliability, N=3 for responsiveness.
+Meaning:    Price dropped so fast that candles 1 and 3 wicks don't overlap.
+            Expected to act as RESISTANCE on retracement.
+```
 
-**Classification** (need 3-4 swing points minimum):
-- **Bullish**: HH + HL sequence
-- **Bearish**: LH + LL sequence
-- **Range**: mixed — no clear bias
+### 1.4 Zone Boundaries Use WICKS, Not Bodies
 
-**Multi-timeframe**: Trade direction of HTF. Ratio 4:1 (e.g., H1 structure, M15 entry).
+The FVG zone is defined by the **High and Low** (wick extremes), NOT Open/Close (body edges). Using body prices is a common algorithmic mistake that produces incorrect zones.
 
-### 1.4 Session Filtering
+### 1.5 Middle Candle (Candle 2) Requirements
 
-| Session | UTC Hours | Use |
-|---------|-----------|-----|
-| Asia (block) | 22:00 - 08:00 | No new entries |
-| London | 08:00 - 17:00 | Best for entries |
-| New York | 13:00 - 22:00 | Best for entries |
-| London+NY overlap | 13:00 - 17:00 | Highest probability |
+The middle candle **does NOT define the zone boundaries** — those are strictly from candles 1 and 3. However, the middle candle's character determines FVG quality:
+
+- **High quality**: Large body (displacement candle), strong directional intent
+- **Low quality**: Small body, doji, or indecision — these FVGs are noise
+- **ICT teaching**: The best FVGs come from displacement moves after liquidity sweeps
+- **Algorithmic filter**: Use ATR-based minimum gap size to filter out weak FVGs (see §1.8)
+
+### 1.6 FVG Lifecycle States
+
+| State | Definition | Action |
+|-------|-----------|--------|
+| **Active** | Just formed, untouched by subsequent price | Valid zone, watching for retracement |
+| **Tested** | Price wicks into the zone but closes outside | Zone CONFIRMED — wick = rejection |
+| **Partially filled** | Price enters and retraces within the zone | Unfilled portion remains valid |
+| **Fully mitigated** | Price traverses the entire zone | Zone exhausted |
+| **Invalidated** | Price **closes** through the far side of the zone | Zone broken — can become IFVG |
+
+**Critical distinction**: A wick through the zone that closes back inside = CONFIRMATION (tested). A candle body closing through = INVALIDATION. This matters for money.
+
+### 1.7 Inversion FVGs (IFVGs)
+
+When an FVG is invalidated (price closes through it with displacement), the zone can flip polarity:
+
+- Violated **bullish FVG** → becomes **bearish IFVG** (was support, now resistance)
+- Violated **bearish FVG** → becomes **bullish IFVG** (was resistance, now support)
+
+**Requirements for valid IFVG:**
+1. Original FVG must have been valid
+2. Violation must be by a displacement candle (large body, strong intent)
+3. The zone is traded from the opposite direction on retracement
+
+**For our EA**: We do not trade IFVGs directly in Phase 1, but we should track FVG state to avoid using invalidated FVGs in BPR formation.
+
+### 1.8 ATR-Based FVG Filter (from ICT_BPR Indicator)
+
+The reference indicator uses a 4-tier filter based on ATR(14) of the trading timeframe:
+
+| Tier | ATR Multiplier | Use Case |
+|------|---------------|----------|
+| Very Aggressive | 0.1x ATR | Maximum signals, most noise |
+| Aggressive | 0.2x ATR | More signals, some noise |
+| Defensive | 0.3x ATR | **Recommended for XAUUSD** |
+| Very Defensive | 0.5x ATR | Minimum signals, least noise. **Recommended for BTCUSD** |
+
+**Implementation**: `if(gap_size < ATR(14) * multiplier) → reject FVG`
+
+### 1.9 Consequent Encroachment (CE) — The 50% Level
+
+`CE = (FVG_high + FVG_low) / 2.0`
+
+ICT teaches that the CE (midpoint) of an FVG is a higher-probability entry level than the zone edge because institutions often return to the midpoint to complete orders. This gives tighter stops and better R:R.
+
+**For our EA**: The "better half" entry logic (enter in the half of the BPR closer to the entry direction) approximates CE. We can optionally add exact CE entry as a configurable option.
+
+### 1.10 Common Algorithmic Mistakes in FVG Detection
+
+| Mistake | Consequence | Prevention |
+|---------|------------|------------|
+| Off-by-one in bar indexing | Compares wrong candles → phantom/missed FVGs | Use clear variable names: `candle1_idx = i+2`, etc. |
+| Using body prices instead of wick prices | Wrong zone boundaries → bad entries/SL | Always use `High[]`/`Low[]`, never `Open[]`/`Close[]` for zone bounds |
+| Not filtering by minimum gap size | Hundreds of noise micro-FVGs | ATR-based filter (§1.8) |
+| Including bar 0 (current forming bar) | Zone boundaries change tick-by-tick | Only scan from bar 1 (last completed) backward |
+| Not checking temporal continuity | Weekend/holiday gaps create false FVGs | Verify candles 1-2-3 are consecutive sessions |
+| Counting same FVG multiple times | Duplicate entries, array bloat | Track by candle 2's `datetime`, deduplicate |
+| Unbounded FVG array growth | EA stops detecting after array fills | Fixed-size array with aging, daily cleanup |
+| Not tracking FVG state | Trading against already-invalidated zones | Track: active → tested → mitigated → invalidated |
 
 ---
 
-## 2. Key Technical Challenges & Solutions
+## 2. Strategy: Balanced Price Ranges (BPRs) — Precise Rules
 
-| Challenge | Solution |
-|-----------|----------|
-| `TimeGMT()` broken in Tester | Use `TimeCurrent() + configurable GMT offset` input per broker |
-| FVG arrays grow unbounded (V2 bug) | Fixed-size arrays with aging — remove FVGs > lookback bars old; daily reset |
-| Bar indices shift every bar | Store `datetime` timestamps, use `iBarShift()` when needed |
-| Filling mode varies per broker | `CTrade::SetTypeFillingBySymbol()` auto-detection |
-| Tick value changes mid-session | Read `SYMBOL_TRADE_TICK_VALUE` fresh per trade + `OrderCalcProfit()` fallback |
-| Wine + macOS automation | Command-line via `wine64 terminal64.exe /config:...` from macOS shell |
-| XAUUSD vs EURUSD point sizes | All sizing via dynamic `SYMBOL_POINT`, `SYMBOL_DIGITS`, `SYMBOL_TICK_VALUE` |
-| BTCUSD high volatility | ATR-based FVG filter auto-adapts; per-pair config profiles |
+### 2.1 BPR Formation — Exact Mathematics
+
+Given:
+- Bullish FVG zone: `[B_low, B_high]` where `B_low = High[candle1]`, `B_high = Low[candle3]`
+- Bearish FVG zone: `[S_low, S_high]` where `S_low = High[candle3]`, `S_high = Low[candle1]`
+
+**Overlap zone (BPR bounds):**
+```
+BPR_low  = max(B_low, S_low)
+BPR_high = min(B_high, S_high)
+
+BPR exists if and only if: BPR_high > BPR_low
+```
+
+**Full BPR bounds (for SL placement — PATCH 2):**
+```
+full_low  = min(B_low, S_low)     ← lowest point of either FVG
+full_high = max(B_high, S_high)   ← highest point of either FVG
+```
+
+### 2.2 BPR Direction — Definitive Answer
+
+**The SECOND (most recent) FVG determines direction.** Cross-referenced across FluxCharts, FXOpen, WritoFinance, SmartMoneyICT, and InnerCircleTrader.net:
+
+- **Bullish BPR**: Bearish FVG forms first → price reverses → bullish FVG overlaps it → the bullish FVG (second/most recent) determines direction → **LONG entries**
+- **Bearish BPR**: Bullish FVG forms first → price reverses → bearish FVG overlaps it → the bearish FVG (second/most recent) determines direction → **SHORT entries**
+
+**Logic**: The most recent displacement represents where smart money is pushing price. The first FVG created the "problem" (imbalance), the second FVG creates the "response" (counter-imbalance). The overlap zone is where both forces balanced — and the most recent force wins.
+
+**Note**: The old V2 code had this INVERTED (bearish FVG more recent = bullish BPR). This was wrong.
+
+### 2.3 BPR Temporal Requirements
+
+The two FVGs do NOT need to form on consecutive bars. However:
+
+- **Closer in time = stronger BPR**. The concept requires "aggressive move then aggressive reversal."
+- **No authoritative maximum bar gap** from ICT. This is a tunable parameter.
+- **Defaults**: 30 bars lookback for M15 (~7.5 hours), 20 bars for M5 (~1.5 hours)
+- Both FVGs must be on the **same timeframe** (standard definition)
+
+### 2.4 BPR Minimum Overlap Size
+
+No authoritative source specifies a minimum. Recommendations:
+
+| Instrument | Minimum BPR Width |
+|-----------|-------------------|
+| XAUUSD | Max of: 1.0 point ($1.00) or 0.25x ATR(14) on M15 |
+| BTCUSD | Max of: 50.0 points ($50) or 0.25x ATR(14) on M15 |
+| EURUSD | Max of: 3 pips or 0.25x ATR(14) on M15 |
+
+### 2.5 BPR Entry Mechanics
+
+1. **Wait for retracement** — do NOT enter on the candle that creates the BPR
+2. **Entry level**: Previous completed bar's close within the BPR zone
+3. **Better entry**: CE level (50% of BPR zone) — `(BPR_high + BPR_low) / 2`
+4. **Market order** (not limit) — for simplicity in Phase 1
+5. **Direction must match market structure** (see §3)
+
+### 2.6 BPR Invalidation
+
+- **Close-based** (recommended): BPR invalidated when a candle **closes** beyond the zone in the opposing direction
+- For bullish BPR: invalidated when close < BPR_low
+- For bearish BPR: invalidated when close > BPR_high
+- **Wick-through + close-inside = zone CONFIRMED** (not invalidated)
+- Use previous bar's close (not current tick) for consistency with new-bar-only logic
+
+### 2.7 The Three Non-Negotiable Patches
+
+| Patch | Rule | Implementation |
+|-------|------|----------------|
+| **PATCH 1** | One trade per BPR | Set `bpr.used = true` immediately on `ExecuteTrade()`. Check `!bpr.used` in `CheckEntry()`. |
+| **PATCH 2** | SL at BPR extremes | For LONG: `SL = full_low - buffer`. For SHORT: `SL = full_high + buffer`. `full_low`/`full_high` = extremes of BOTH FVGs, not just overlap. |
+| **PATCH 3** | Daily expiry | Store `bpr.formed_date`. On each new bar, expire BPRs where `GetDayStart(current_time) > GetDayStart(formed_date)`. |
+
+### 2.8 BPR with Confluence (Higher Probability Setups)
+
+These increase probability but are optional for Phase 1:
+
+- **BPR + Order Block overlap** → significantly stronger zone
+- **BPR in correct premium/discount zone** → bullish BPR in discount (below 50% of range), bearish in premium
+- **BPR + liquidity sweep** → best setups come after stop hunts
+- **BPR formed by displacement candles** → both FVGs should come from strong moves, not weak doji candles
 
 ---
 
-## 3. Multi-Broker / Multi-Pair Architecture
+## 3. Market Structure — Precise Classification
 
-Per the user's requirements, the system must support **multiple brokers** and **per-pair configs**.
-
-### 3.1 Config System Design
+### 3.1 Swing Detection Algorithm
 
 ```
-configs/
-├── brokers/
-│   ├── gtc_global.json          # GTC-specific: server name, GMT offset, symbol names
-│   └── another_broker.json      # Future broker
-├── pairs/
-│   ├── XAUUSD.json              # Gold-specific: timeframes, swing lookback, FVG filter, R:R
-│   ├── BTCUSD.json              # BTC-specific params
-│   └── EURUSD.json              # Future pair
-└── profiles/
-    ├── aggressive.json           # 5-10% risk, wide parameters
-    └── medium.json               # 2-3% risk, conservative parameters
+isSwingHigh(bar_index, lookback_N):
+    for j = 1 to N:
+        if High[bar_index] <= High[bar_index - j]: return false  // left side
+        if High[bar_index] <= High[bar_index + j]: return false  // right side
+    return true
+
+isSwingLow(bar_index, lookback_N):
+    for j = 1 to N:
+        if Low[bar_index] >= Low[bar_index - j]: return false
+        if Low[bar_index] >= Low[bar_index + j]: return false
+    return true
 ```
 
-### 3.2 How It Works in MQL5
+**Lookback N**: Bars on each side. `N=5` for reliable structure, `N=3` for responsive.
 
-Since MQL5 EAs use `input` parameters (set at load time), we have two approaches:
+**Lag**: Swing points are only confirmed after N right-side bars form. With N=5, there's a 5-bar lag.
 
-**Approach A — Single EA with .set files (Recommended):**
-- One `BPR_Bot.mq5` file
-- Per-pair `.set` files (MT5 native parameter preset format) stored in `MQL5/Presets/`
-- Load the appropriate preset per chart: `XAUUSD.set`, `BTCUSD.set`, etc.
-- The automation scripts generate these `.set` files from the JSON configs
+**Minimum data**: Need at least `2*N + 1` bars to detect one swing point. Need 3-4 swing points (2 highs + 2 lows) for reliable classification.
 
-**Approach B — Per-pair EA copies:**
-- Not recommended — hard to maintain, same code duplicated
+### 3.2 Structure Classification
 
-### 3.3 Broker-Specific Parameters (in EA inputs)
+| Pattern | Classification | Trading Direction |
+|---------|---------------|-------------------|
+| HH + HL (Higher High + Higher Low) | **Bullish** | Longs only |
+| LH + LL (Lower High + Lower Low) | **Bearish** | Shorts only |
+| Mixed (HH+LL or LH+HL) | **Range** | No trades (or range strategies) |
+
+### 3.3 Multi-Timeframe Alignment
+
+- **HTF** (default: H1) determines overall bias
+- **Entry TF** (default: M15) for FVG/BPR detection and entry
+- Ratio: ~4:1 between timeframes
+- **Rule**: Only take entry-TF signals that align with HTF structure
+- If HTF = Range → skip all trades
+
+### 3.4 Break of Structure (BOS) and Change of Character (CHoCH)
+
+| Event | Meaning | Implication |
+|-------|---------|-------------|
+| **BOS** (Break of Structure) | Price breaks last swing in trend direction (e.g., breaks swing high in uptrend) | Trend continuation — keep trading in trend direction |
+| **CHoCH** (Change of Character) | Price breaks last swing AGAINST trend (e.g., breaks swing low in uptrend) | Potential reversal — stop opening new trades until new structure confirms |
+
+---
+
+## 4. Session Filtering — Precise Hours and Rules
+
+### 4.1 Session Hours (UTC/GMT)
+
+| Session | UTC Start | UTC End | Characteristic |
+|---------|-----------|---------|----------------|
+| Sydney | 21:00 | 06:00 | Low volume |
+| Tokyo (Asia) | 23:00 | 08:00 | Accumulation, range-bound |
+| London | 08:00 | 17:00 | Highest volume, manipulation |
+| New York | 13:00 | 22:00 | Distribution, high volume |
+| London+NY overlap | 13:00 | 17:00 | **Best for entries** — most volatile |
+
+**ICT Kill Zones** (highest probability entry windows):
+- London Kill Zone: **08:00-12:00 UTC**
+- NY Kill Zone: **13:00-17:00 UTC**
+- ICT Silver Bullet: **14:00-15:00 UTC** and **18:00-19:00 UTC**
+
+### 4.2 Session Filter for XAUUSD (Gold)
+
+Gold is HIGHLY session-dependent:
+- **Asia (22:00-07:00 UTC)**: Range-bound, wider spreads, low-quality FVGs. **Block new entries.**
+- **London open (07:00-08:00 UTC)**: Classic "Judas swing" — stop hunt of Asia range, then reversal. High-quality BPR formations after the manipulation.
+- **London+NY overlap (13:00-17:00 UTC)**: Best period. Tightest spreads, highest volume. **Preferred entry window.**
+- **NY PM (17:00-22:00 UTC)**: Declining volume. Some valid setups but lower probability.
+
+### 4.3 Session Filter for BTCUSD (Crypto)
+
+BTC trades 24/7 but institutional activity follows traditional hours:
+- **London+NY overlap still most volatile** for BTC
+- Asia filter is less critical — BTC can have valid moves in Asia
+- **Consider**: Volume-based quiet period detection instead of pure time-based filter
+- **Must account for**: Broker maintenance windows (typically Saturday morning, 30min-2hrs)
+- **Weekend**: Lower liquidity, wider spreads, consider reducing position size or blocking entries
+
+### 4.4 Time Handling — The Critical Detail
+
+**`TimeGMT()` is BROKEN in Strategy Tester** — returns same value as `TimeCurrent()` (server time).
+
+**Solution**: Use server time with configurable broker GMT offset:
 
 ```mql5
-// Broker settings
-input int      Inp_GMTOffset          = 2;      // Server GMT offset (hours) — GTC likely +2/+3
-input int      Inp_MagicNumber        = 240001;  // Unique per pair+broker combo
+input int Inp_BrokerGMTOffsetWinter = 2;  // Most brokers: GMT+2 winter
+input int Inp_BrokerGMTOffsetSummer = 3;  // Most brokers: GMT+3 summer (DST)
+
+datetime GetGMTTime()
+{
+    if(MQLInfoInteger(MQL_TESTER))
+        return TimeCurrent() - GetBrokerGMTOffset() * 3600;
+    else
+        return TimeGMT();  // From local PC clock in live
+}
 ```
 
-### 3.4 Pair-Specific Considerations
-
-| Aspect | XAUUSD (Gold) | BTCUSD (Bitcoin) |
-|--------|---------------|------------------|
-| Typical spread | 15-30 points | 50-500 points |
-| Volatility | High | Very high |
-| Point value | ~$0.01/point | Varies wildly |
-| Digits | 2 (e.g., 2650.50) | 2 (e.g., 95000.00) |
-| FVG filter | Defensive (0.3x ATR) | Very Defensive (0.5x ATR) |
-| Swing lookback | 5 | 5-7 |
-| BPR lookback | 30 bars | 20 bars (faster moves) |
-| Session filter | Strong (avoid Asia) | Weaker (crypto trades 24/7) |
-| Default R:R | 2.0 | 1.5 (wider stops) |
+**DST transitions**: Most brokers follow EU DST (second Sunday of March → GMT+3, last Sunday of October → GMT+2). The EA must handle this automatically.
 
 ---
 
-## 4. Analysis of Previous Implementations
+## 5. XAUUSD (Gold) — Critical Trading Details
 
-### 4.1 Old V2 (BPR_Bot_V2.mq5) — 10 Critical Bugs
+### 5.1 Price Mechanics
 
-| # | Bug | Severity | Fix in New Version |
-|---|-----|----------|-------------------|
-| 1 | FVG arrays grow unbounded → stops detecting after 100 | **Critical** | Fixed-size arrays with aging/cleanup |
-| 2 | Default risk 10% per trade | **Critical** | Default 1% backtest, configurable profiles |
-| 3 | Session uses `TimeCurrent()`, labels say "UTC" | **High** | `TimeCurrent() + GMT_offset` with clear labeling |
-| 4 | `ObjectFind` return value inverted | **High** | Correct check: `ObjectFind() < 0` |
-| 5 | BPR direction inverted vs ICT convention | **High** | Last FVG = direction (standard) |
-| 6 | Tick value cached in OnInit → stale | **Medium** | Read fresh per trade |
-| 7 | `Inp_CleanBPROnly` declared, never used | **Low** | Implement or remove |
-| 8 | `OnTester()` always returns 100 | **Medium** | Proper custom metric (profit factor weighted) |
-| 9 | JSON filename loses `.json` extension | **Low** | Fix StringReplace to only target date dots |
-| 10 | No OnDeinit cleanup | **Medium** | Full object cleanup with prefix matching |
+| Property | Typical Value | Note |
+|----------|---------------|------|
+| Contract size | 100 troy ounces per lot | Confirm via `SYMBOL_TRADE_CONTRACT_SIZE` |
+| Digits | 2 (some brokers: 3) | `SYMBOL_DIGITS` — changes all point calculations |
+| Point | 0.01 (2-digit) or 0.001 (3-digit) | `SYMBOL_POINT` |
+| Tick size | Usually = Point | `SYMBOL_TRADE_TICK_SIZE` |
+| Tick value | $1.00 per lot per tick (2-digit) | `SYMBOL_TRADE_TICK_VALUE` |
+| Volume min | 0.01 lots | `SYMBOL_VOLUME_MIN` |
+| Volume step | 0.01 lots | `SYMBOL_VOLUME_STEP` |
 
-### 4.2 ICT_BPR.mq5 Indicator — Good Reference Code
+**Position sizing example** (see full formula in MQL5_TECHNICAL_REFERENCE.md):
+- Equity $10,000, Risk 2% ($200), SL distance = $5.00 (500 points on 2-digit)
+- SL value per lot = 500 ticks × $1.00/tick = $500
+- Lots = $200 / $500 = **0.40 lots**
+- Verification: 0.40 lots × 100 oz × $5.00/oz = $200 loss ✓
 
-This indicator (on Desktop) has the cleanest FVG detection. Key patterns to adopt:
-- **ATR-based FVG filter** with 4 tiers (Very Aggressive to Very Defensive)
-- **FVG inversion detection** (price closes through → polarity flip)
-- **Proximal/Distal zone concept** (entry at proximal, target at distal)
-- **Validity period** (FVGs expire after N bars — default 500)
-- **Proper overlap check** for BPR formation
+### 5.2 Spread Ranges
 
----
+| Condition | Typical Spread |
+|-----------|---------------|
+| London+NY overlap | $0.15-$0.30 (15-30 points) |
+| Normal London/NY | $0.15-$0.30 |
+| Asia session | $0.30-$0.80 (wider!) |
+| FOMC/NFP/CPI | $1.00-$5.00+ (spikes!) |
 
-## 5. Autonomous Operation Pipeline
+### 5.3 Gold-Specific Risks
 
-### 5.1 Architecture (Wine-Native on macOS — No Parallels)
+- **News volatility**: Gold can move $50-$100 in minutes after FOMC. FVGs during news may be valid but entries carry massive slippage risk.
+- **London open manipulation**: Classic stop hunt of Asia range. FVGs formed during this manipulation are HIGH quality — but only after the manipulation completes.
+- **Point value is high**: $1.00 per point per lot means a 100-point SL on 1 lot = $100 risk. Position sizing precision is critical.
+- **DXY correlation weakened**: In 2024-2026, gold and DXY have shown simultaneous strength during risk-off events. Do NOT assume inverse correlation.
 
-```
-┌──────────────────────────────────────────────────────────────────┐
-│                      macOS Apple Silicon                          │
-│                                                                  │
-│  ┌─────────────────┐                                             │
-│  │  Claude Code     │  ◀── Analyzes results, modifies code,     │
-│  │  (orchestrator)  │      generates configs, iterates           │
-│  └────────┬────────┘                                             │
-│           │                                                      │
-│           ▼                                                      │
-│  ┌─────────────────┐     ┌────────────────────────────────────┐ │
-│  │  Python Scripts  │────▶│  Wine (bundled in MT5.app)         │ │
-│  │  scripts/        │     │  ┌──────────────────────────────┐  │ │
-│  │  - compile.py    │     │  │ metaeditor64.exe /compile     │  │ │
-│  │  - backtest.py   │◀────│  │ terminal64.exe  /config:...   │  │ │
-│  │  - parse.py      │     │  │ → runs backtest               │  │ │
-│  │  - optimize.py   │     │  │ → writes report to Tester/    │  │ │
-│  └────────┬────────┘     │  └──────────────────────────────┘  │ │
-│           │               └────────────────────────────────────┘ │
-│           ▼                                                      │
-│  ┌─────────────────┐                                             │
-│  │  reports/        │  ← Parsed HTML/XML backtest results       │
-│  │  configs/        │  ← Per-pair, per-broker JSON configs      │
-│  │  src/BPR_Bot.mq5 │  ← The EA (modified by AI each iteration)│
-│  └─────────────────┘                                             │
-└──────────────────────────────────────────────────────────────────┘
-```
+### 5.4 FVG Considerations for Gold
 
-### 5.2 Automation Commands (via Wine from macOS shell)
-
-```bash
-# Variables
-WINE="/Applications/MetaTrader 5.app/Contents/SharedSupport/wine/bin/wine64"
-WINEPREFIX="$HOME/Library/Application Support/net.metaquotes.wine.metatrader5"
-MT5_ROOT="$WINEPREFIX/drive_c/Program Files/MetaTrader 5"
-
-# Compile EA
-WINEPREFIX="$WINEPREFIX" "$WINE" "$MT5_ROOT/metaeditor64.exe" \
-    /compile:"C:\Program Files\MetaTrader 5\MQL5\Experts\BPR_Bot.mq5" /log
-
-# Run backtest (with INI config)
-WINEPREFIX="$WINEPREFIX" "$WINE" "$MT5_ROOT/terminal64.exe" \
-    /config:"C:\Program Files\MetaTrader 5\config\backtest.ini"
-```
-
-### 5.3 INI Config for Automated Backtesting
-
-```ini
-[Tester]
-Expert=Experts\BPR_Bot
-Symbol=XAUUSD
-Period=M15
-Optimization=0
-Model=1                    ; 0=every tick, 1=1min OHLC, 2=open price
-FromDate=2025.01.01
-ToDate=2025.12.31
-ForwardMode=0
-Deposit=10000
-Currency=USD
-Leverage=2000
-ExecutionMode=120
-Report=Tester\BPR_XAUUSD_backtest.xml
-ReplaceReport=1
-ShutdownTerminal=1         ; Exit MT5 after test completes
-```
-
-### 5.4 Full Autonomous Loop
-
-```
-PHASE A — Setup (once)
-  1. Write BPR_Bot.mq5 to MQL5/Experts/
-  2. Write diagnostic script to MQL5/Scripts/
-  3. Compile via Wine + metaeditor64.exe
-  4. User runs diagnostic script once → get broker params
-  5. Configure per-pair .set files
-
-PHASE B — Iterative Optimization (autonomous)
-  Loop:
-    1. Claude Code modifies EA code or parameters
-    2. Copy .mq5 to MQL5/Experts/
-    3. Compile via Wine (check for errors in log)
-    4. Generate backtest INI for target pair + date range
-    5. Launch backtest via Wine + terminal64.exe
-    6. Wait for completion (poll for report file)
-    7. Parse report (HTML/XML → metrics)
-    8. Analyze: profit factor, Sharpe, max DD, win rate, trade count
-    9. Diagnose issues → propose changes
-    10. Apply changes → go to step 1
-
-PHASE C — Optimization Passes
-  - Run MT5's built-in genetic optimizer for parameter sweeps
-  - Walk-forward: train on 6 months, validate on 2 months, roll forward
-  - Save best parameters per pair as .set files
-
-PHASE D — Live Deployment
-  - User provides live account credentials
-  - Set risk profiles: Aggressive (5-10%), Medium (2-3%)
-  - Deploy EA with optimized .set file per pair
-  - Monitor via daily log analysis
-```
-
-### 5.5 Key Uncertainty: Wine Automation
-
-**What needs testing before committing to this path:**
-
-1. **Can `metaeditor64.exe /compile` run headlessly via Wine?**
-   - Should work — MetaEditor CLI compilation is a common automation pattern
-   - Check: does it produce a `.log` file we can parse for errors?
-
-2. **Can `terminal64.exe /config:backtest.ini` run via Wine without GUI interaction?**
-   - The INI approach should work — MT5 reads the config and runs the test
-   - `ShutdownTerminal=1` should make it exit after completion
-   - Risk: Wine may pop up dialog boxes that block execution
-
-3. **Do backtest reports get written to the Tester directory?**
-   - With `Report=...` in the INI, MT5 should write the report
-   - Need to verify the path mapping between Wine and macOS filesystem
-
-4. **Performance of Strategy Tester under Wine + Rosetta 2?**
-   - Expected to be 2-5x slower than native Windows
-   - For heavy optimization, consider a cloud Windows VPS ($20-30/mo)
-
-**Fallback if Wine automation fails:**
-- User manually opens MT5 → loads EA → runs backtest → saves report
-- Claude Code reads the report file from the Tester directory
-- Less autonomous but still works for the iterative loop
+- **Typical M15 FVG size** (London/NY session): $2-$8 (200-800 points on 2-digit)
+- **ATR(14) M15 typical**: ~$5-$15 depending on volatility regime
+- **Recommended FVG filter**: Defensive (0.3x ATR) — filters noise without missing valid setups
+- **FVGs > 2x ATR**: Likely news-driven — treat with caution, may not behave normally
 
 ---
 
-## 6. Recommended Architecture (EA)
+## 6. BTCUSD (Bitcoin) — Critical Trading Details
 
-### 6.1 Module Layout (Single File: `BPR_Bot.mq5`)
+### 6.1 Price Mechanics
 
-```
-BPR_Bot.mq5
-├── [Header] Includes, copyright, version
-├── [Inputs] All configurable parameters (grouped by category)
-│   ├── Broker settings (magic number, GMT offset)
-│   ├── Symbol & timeframe
-│   ├── Session filter (UTC hours)
-│   ├── Risk & execution (R:R, SL buffer, risk fraction, risk profile)
-│   ├── FVG detection (lookback, ATR filter tier, min range)
-│   ├── BPR detection (lookback, max active, min range)
-│   ├── Market structure (swing lookback, HTF timeframe)
-│   └── Visuals (draw boxes, colors, shade sessions)
-├── [Enums & Structs]
-│   ├── MARKET_STRUCTURE enum
-│   ├── FVG_FILTER_TIER enum (VeryAggressive/Aggressive/Defensive/VeryDefensive)
-│   ├── FVG struct (timestamp, bounds, direction, active, day_date)
-│   ├── BPR struct (overlap bounds, full bounds, direction, active, used, formed_date)
-│   └── SwingPoint struct (price, time, type)
-├── [Globals] CTrade, arrays, state variables, symbol properties
-├── [Event Handlers]
-│   ├── OnInit()        — validate symbol, read symbol props, init CTrade, create timer
-│   ├── OnTick()        — new bar gate → full pipeline
-│   ├── OnDeinit()      — cleanup all chart objects, release resources
-│   └── OnTimer()       — periodic maintenance (10-second interval)
-├── [Market Structure]
-│   ├── DetectSwingPoints(timeframe) — find pivots with configurable lookback
-│   └── ClassifyStructure()          — HH/HL/LH/LL → bullish/bearish/range
-├── [FVG Detection]
-│   ├── DetectFVGs()     — scan last completed bar for new FVGs
-│   ├── FilterFVG()      — ATR-based size filter (4 tiers)
-│   └── CleanupFVGs()    — age out old/used, daily reset
-├── [BPR Detection]
-│   ├── DetectBPRs()         — match overlapping opposite FVGs
-│   ├── ValidateBPRs()       — invalidate breached BPRs (close through zone)
-│   └── ExpireDailyBPRs()    — PATCH 3: remove BPRs from previous trading day
-├── [Trade Execution]
-│   ├── CheckEntry()             — BPR zone + structure + session alignment
-│   ├── CalculatePositionSize()  — equity-risk sizing (fresh tick value)
-│   ├── ExecuteTrade()           — CTrade + mark BPR used (PATCH 1)
-│   └── HasOpenPosition()        — check by magic number (not PositionsTotal)
-├── [Session & Time]
-│   ├── IsBlockedSession()   — check if current time falls in no-trade window
-│   ├── GetGMTTime()         — TimeCurrent() - GMT_offset*3600
-│   └── GetDayStart()        — trading day boundary for PATCH 3
-├── [Visuals]
-│   ├── DrawBPRBox()     — create rectangle with sequential ID
-│   ├── UpdateBPRBox()   — change color when used/expired
-│   └── CleanupObjects() — remove all with prefix in OnDeinit
-├── [Custom Tester Metric]
-│   └── OnTester()       — weighted metric (profit factor + Sharpe + recovery factor)
-└── [Utility]
-    ├── LogMessage()       — structured logging with timestamp + context
-    ├── IsNewBar()         — bar change detection via datetime comparison
-    └── NormalizeLots()    — clamp to min/max, snap to step
-```
+| Property | Typical Value | Note |
+|----------|---------------|------|
+| Contract size | 1 BTC per lot (VARIES by broker!) | MUST confirm — some use 10 or 0.1 |
+| Digits | 2 (usually) | |
+| Point | 0.01 | |
+| Tick value | $0.01 per lot per tick (if contract = 1 BTC) | VARIES by broker |
+| Volume min | 0.01 lots | |
+| Volume step | 0.01 lots | |
 
-### 6.2 Data Flow Per New Bar
+**WARNING**: BTCUSD contract specifications vary ENORMOUSLY between brokers. Never hardcode — always query dynamically.
 
-```
-OnTick()
-  │
-  ├─ IsNewBar()? ── No → return
-  │
-  ├─ CopyRates(entry_TF)
-  ├─ CopyRates(HTF)
-  │
-  ├─ DetectSwingPoints(HTF)
-  ├─ ClassifyStructure() → BULLISH / BEARISH / RANGE
-  │
-  ├─ DetectFVGs() → scan bar[1] for new bullish/bearish FVGs
-  ├─ FilterFVG() → ATR-based minimum size check
-  ├─ CleanupFVGs() → remove aged FVGs (> lookback bars old)
-  │
-  ├─ DetectBPRs() → match overlapping opposite FVGs → create BPR
-  ├─ ValidateBPRs() → remove BPRs breached by close
-  ├─ ExpireDailyBPRs() → PATCH 3: expire previous-day BPRs
-  │
-  ├─ IsBlockedSession()? ── Yes → skip entry, manage existing trades only
-  │
-  ├─ HasOpenPosition()? ── Yes + !AllowMultiple → skip entry
-  │
-  ├─ CheckEntry() → for each active, unused BPR:
-  │   ├─ Direction matches structure?
-  │   ├─ Price in BPR zone? (use previous bar close)
-  │   └─ BPR not used? (PATCH 1)
-  │
-  ├─ CalculatePositionSize() → equity × risk% / SL_distance
-  ├─ ExecuteTrade() → CTrade.Buy/Sell + mark BPR.used = true
-  │
-  └─ DrawBPRBox() → update visuals for all active BPRs
-```
+### 6.2 BTC-Specific Risks
 
-### 6.3 Key Design Decisions
+| Risk | Detail | Mitigation |
+|------|--------|------------|
+| **Flash crashes** | Oct 2025: $19B liquidated in hours. Dec 2025: flash crash to $24K from $100K+ on Binance. | Max drawdown limits, position size caps, circuit-breaker logic |
+| **Spread widening** | Order book depth can shrink >90% during stress. Spreads from $5 to $200+. | Check spread before entry; reject if > 2x normal spread |
+| **Leverage danger** | 1:2000 on BTC = 0.05% move liquidates. | Cap effective leverage at 5x-10x. 1:2000 is suicidal for BTC. |
+| **Swap costs** | ~20% annual. At $100K BTC, 1 lot = ~$55/night. Triple Wednesday = ~$165. | Short-term trades only. Close before swap cutoff for overnight. |
+| **24/7 market** | Maintenance windows exist. Lower weekend liquidity. | Detect maintenance (no ticks), reduce weekend position size |
 
-| Decision | Choice | Rationale |
-|----------|--------|-----------|
-| BPR direction | Last FVG determines direction | Standard ICT convention |
-| FVG filter | ATR-based, 4 tiers (from ICT_BPR indicator) | Eliminates noise, adapts to volatility |
-| FVG array management | Fixed-size (200) with aging + daily reset | Prevents V2 unbounded growth bug |
-| BPR lifecycle | Daily expiry (PATCH 3) + close-through invalidation | Intraday strategy; stale BPRs are dangerous |
-| Time handling | `TimeCurrent() - GMT_offset * 3600` | Works in both tester and live |
-| Position sizing | Fresh tick_value per trade + OrderCalcProfit fallback | Accurate for XAUUSD/BTCUSD cross pairs |
-| Visual objects | Sequential ID naming, full OnDeinit cleanup | No name collisions, clean chart |
-| One trade per BPR | `used` flag on execution (PATCH 1) | No double-dipping |
-| Magic number | Per-pair unique (e.g., 240001=XAUUSD, 240002=BTCUSD) | Tracks positions per EA instance |
-| Entry check | Previous bar close in zone (not current tick) | Consistent with new-bar-only logic |
-| OnTester metric | 0.4×ProfitFactor + 0.3×Sharpe + 0.3×RecoveryFactor | Meaningful for genetic optimizer |
+### 6.3 Leverage Recommendation for BTCUSD
+
+| Risk Profile | Effective Leverage | Risk Per Trade |
+|-------------|-------------------|----------------|
+| Backtest | 5x-10x | 0.5-1% |
+| Medium (live) | 3x-5x | 1-2% |
+| Aggressive (live) | 5x-10x | 2-3% |
+
+**Never use full 1:2000 leverage on BTC.** A 2% adverse move at 2000:1 leverage = 40x account equity = instant liquidation.
 
 ---
 
-## 7. Proposed File Structure
+## 7. Analysis of Previous Implementations
 
-```
-MT5-Bots/
-├── BPR/
-│   ├── src/
-│   │   └── BPR_Bot.mq5                    # Single compile-ready EA
-│   ├── scripts/
-│   │   ├── compile.sh                      # Wine + metaeditor compile wrapper
-│   │   ├── backtest.sh                     # Wine + terminal64 backtest launcher
-│   │   ├── parse_report.py                 # HTML/XML report → JSON metrics
-│   │   ├── generate_set.py                 # JSON config → .set file generator
-│   │   ├── generate_ini.py                 # Backtest INI generator
-│   │   └── deploy.sh                       # Copy EA + presets to MQL5 directory
-│   ├── configs/
-│   │   ├── brokers/
-│   │   │   └── gtc_global.json             # GMT offset, server, symbol map
-│   │   ├── pairs/
-│   │   │   ├── XAUUSD.json                 # Gold-specific params
-│   │   │   └── BTCUSD.json                 # BTC-specific params
-│   │   └── profiles/
-│   │       ├── backtest.json               # 1% risk for testing
-│   │       ├── aggressive.json             # 5-10% risk for live
-│   │       └── medium.json                 # 2-3% risk for live
-│   ├── presets/                             # Generated .set files for MT5
-│   │   ├── BPR_XAUUSD_backtest.set
-│   │   ├── BPR_BTCUSD_backtest.set
-│   │   └── ...
-│   ├── models/                              # Future: ONNX models per pair
-│   ├── reports/                             # Parsed backtest results per iteration
-│   ├── docs/
-│   │   └── BACKTEST_NOTES.md               # Analysis of each backtest run
-│   ├── RESEARCH_SUMMARY.md                  # This document
-│   ├── CHANGELOG.md                         # Iteration tracking
-│   └── CLAUDE.md                            # AI development instructions
-└── README.md                                # Project overview
-```
+### 7.1 Old V2 (BPR_Bot_V2.mq5) — 10 Critical Bugs
+
+| # | Bug | How It Costs Money |
+|---|-----|-------------------|
+| 1 | FVG arrays unbounded (cap at 100) | Stops detecting BPRs after ~100 FVGs → misses all trades |
+| 2 | Default risk 10% per trade | Blows account on 3-4 consecutive losses |
+| 3 | Session uses `TimeCurrent()` not UTC | Enters during wrong hours → low-quality trades in Asia |
+| 4 | `ObjectFind` return value inverted | Visual debugging broken → can't diagnose issues |
+| 5 | BPR direction inverted vs ICT convention | Enters LONG when should SHORT and vice versa |
+| 6 | Tick value cached in OnInit | Stale for cross-currency → wrong position sizes |
+| 7 | `Inp_CleanBPROnly` never implemented | Feature gap — no clean BPR filter |
+| 8 | `OnTester()` always returns 100 | Genetic optimizer gets no useful fitness signal |
+| 9 | JSON filename loses extension | Can't find log files → debugging blind |
+| 10 | No OnDeinit cleanup | Ghost objects on chart → visual confusion |
+
+### 7.2 ICT_BPR.mq5 Indicator — Valuable Reference
+
+This indicator (at `~/Desktop/All/BPR/V2/ICT_BPR.mq5`, 630 lines) has the cleanest reference implementation:
+- ✅ Correct FVG detection (`Low[i] > High[i-2]` for bullish, non-series arrays)
+- ✅ ATR-based 4-tier filter
+- ✅ FVG inversion detection
+- ✅ Proper overlap check for BPR
+- ✅ Validity period aging (configurable bars)
+- ✅ Proximal/Distal zone naming
+- ✅ Clean chart object management (`ObjectFind >= 0` — correct)
 
 ---
 
-## 8. Execution Plan (Phases)
+## 8. Autonomous Operation Pipeline
 
-### Phase 0.5 — Diagnostics & Validation (NEXT)
+*Detailed in separate document: [AUTOMATION_PIPELINE.md](docs/AUTOMATION_PIPELINE.md)*
 
-**Goal**: Confirm all unknowns about the broker before writing the EA.
+### 8.1 Summary
 
-1. Write `BPR_Diagnostic.mq5` script — prints all broker/symbol properties
-2. Copy to `MQL5/Scripts/`
-3. Compile via Wine CLI
-4. **User runs the script once in MT5** (drag onto chart → reads Journal tab)
-5. Parse results → update broker config JSON
-6. Also test: can we compile via Wine CLI? Can we launch terminal via Wine CLI?
+| Step | Tool | How |
+|------|------|-----|
+| Compile | MetaEditor CLI via Wine | Headless, no display needed, offline |
+| Backtest | terminal64.exe via Wine with INI config | Window appears briefly, ShutdownTerminal=1 exits |
+| Parse report | Python (HTML/XML parser) | Reports at configurable path |
+| Analyze | Claude Code / Claude API | Read metrics, diagnose, propose changes |
+| Iterate | Automated loop | Modify code/params → compile → backtest → parse → analyze → repeat |
+
+### 8.2 Key Confirmed Facts
+
+- MetaEditor CLI compilation **works via Wine** (confirmed by EA31337 project, mql-compile.nvim plugin)
+- terminal64.exe `/config:` backtesting **works via Wine** (confirmed by multiple forum sources)
+- **Terminal DOES show a window** (cannot be fully suppressed on macOS — not a blocker)
+- `ShutdownTerminal=1` **exits cleanly** via Wine (confirmed in actual MT5 logs on this system)
+- All `.set` and `.ini` files must be **UTF-16 LE with BOM** (confirmed from actual files on this system)
+- MetaEditor CLI does NOT reliably return error exit codes — **check .ex5 file existence** instead
+- `.log` files from compilation are **UTF-16 encoded**
+- **MT5 does NOT auto-compile** when .mq5 files change on disk — only on startup
+- **MT5 does NOT need to be running** for CLI compilation
+
+---
+
+## 9. Execution Plan (Phases)
+
+### Phase 0.5 — Diagnostics & Wine Validation
+
+1. Write `BPR_Diagnostic.mq5` script → prints all broker/symbol properties
+2. Copy to `MQL5/Scripts/`, compile via Wine CLI
+3. **Test Wine compilation** — verify .ex5 is produced, parse .log for errors
+4. User runs diagnostic in MT5 → read Journal output
+5. **Test Wine backtesting** — run a simple test with sample EA, verify report generated
+6. Update broker config with confirmed values
 
 ### Phase 1 — Core EA Development
 
-**Goal**: Compile-ready EA that implements the full BPR strategy with all 3 patches.
-
-1. Write `BPR_Bot.mq5` with all functions from section 6.1
-2. Incorporate ATR-based FVG filter from ICT_BPR indicator
-3. Deploy to MQL5/Experts/
-4. Compile and verify zero warnings
-5. Self-test: trace through 5 scenarios mentally
-6. Create default `.set` files for XAUUSD and BTCUSD
+1. Write `BPR_Bot.mq5` with every function from architecture spec
+2. FVG detection with ATR filter, lifecycle tracking
+3. BPR detection with overlap math, all 3 patches
+4. Market structure with multi-TF swing analysis
+5. Position sizing with full `OrderCalcProfit` fallback
+6. Session filter with DST-aware GMT offset
+7. All CTrade error handling with retry logic
+8. OnTester metric for optimizer fitness
+9. Compile, verify zero warnings
 
 ### Phase 2 — Automation Scripts
 
-**Goal**: Full hands-off compile → backtest → parse → analyze loop.
+1. `compile.sh` — Wine + MetaEditor wrapper with error detection
+2. `backtest.sh` — Wine + terminal64 launcher with INI generation
+3. `parse_report.py` — extract all metrics from HTML report
+4. `generate_set.py` — JSON config → UTF-16 LE .set file
+5. `deploy.sh` — copy EA + presets to MQL5 directory
+6. End-to-end test of the full loop
 
-1. Write `compile.sh` — Wine + metaeditor wrapper
-2. Write `backtest.sh` — Wine + terminal64 wrapper with INI generation
-3. Write `parse_report.py` — extract metrics from HTML/XML reports
-4. Write `generate_set.py` — create .set files from JSON configs
-5. Test the full loop end-to-end
+### Phase 3 — Iterative Optimization
 
-### Phase 3 — Iterative Backtesting & Optimization
-
-**Goal**: Find optimal parameters per pair.
-
-1. Run initial backtest on XAUUSD M15 (2024-01-01 to 2025-12-31)
-2. Analyze results → identify issues (too many trades? bad SL? wrong structure?)
-3. Adjust parameters and/or code → re-test
-4. Repeat until profit factor > 1.5, max DD < 20%
-5. Run walk-forward validation (train 6mo, validate 2mo, roll)
-6. Save best params as .set file
-7. Repeat for BTCUSD
+1. XAUUSD M15 backtest: 2024-2025 (2 years)
+2. Analyze → diagnose → adjust → re-test
+3. Target: Profit Factor > 1.5, Max DD < 20%, Win Rate > 45%
+4. Walk-forward: train 6mo, validate 2mo, roll forward
+5. Save best params as `.set` file
+6. Repeat for BTCUSD
 
 ### Phase 4 — Live Deployment
 
-**Goal**: Deploy on real account with risk-managed profiles.
-
-1. User provides live account credentials
-2. Deploy with "medium" risk profile first (2-3% per trade)
-3. Monitor daily — Claude Code reads trade logs, analyzes performance
-4. After 2 weeks stable → optionally switch to "aggressive" (5-10%)
-5. Ongoing: weekly parameter review, monthly walk-forward re-optimization
+1. Deploy with "medium" risk profile (2-3% per trade)
+2. Monitor daily — read trade logs, analyze performance
+3. After 2 weeks stable → option to switch to "aggressive" (5-10%)
+4. Weekly parameter review, monthly re-optimization
 
 ### Phase 5 — ML Enhancement (Future)
 
-**Goal**: Add AI-based trade filtering.
-
-1. Collect trade data (features: BPR width, time of day, structure strength, ATR, session)
-2. Train logistic regression or small neural net in Python
-3. Export to ONNX
-4. Embed in EA → filter low-probability setups
-5. Re-backtest → compare with/without ML filter
+1. Collect trade feature data (BPR width, TOD, structure strength, ATR, session)
+2. Train classifier in Python → export ONNX
+3. Embed in EA → filter low-probability setups
+4. Compare with/without ML filter
 
 ---
 
-## 9. Edge Cases & XAUUSD/BTCUSD-Specific Risks
+## 10. Open Questions
 
-### XAUUSD (Gold) Risks:
-- **Wide spreads during news** (NFP, FOMC) — need spread filter or news time blackout
-- **Point value** is high (~$1 per 0.01 lot per point) — position sizing must be precise
-- **Volatile session opens** — London open can create false FVGs from stop hunts
-- **Correlation with DXY** — USD strength inversely affects gold
-
-### BTCUSD (Bitcoin) Risks:
-- **24/7 market** — Asia session filter less relevant; may need different session logic
-- **Extreme volatility** — FVGs and BPRs can be very wide; need larger buffers
-- **Weekend gaps** — crypto doesn't have traditional weekend gaps but can have exchange-specific gaps
-- **Leverage risk** — 1:2000 on BTC with 5-10% risk per trade is extremely dangerous
-- **Spread widening** — can be 10x normal during volatile periods
-
-### General Edge Cases:
-1. **Overlapping BPRs at same price** — trade only the freshest
-2. **Zero-width BPR** — enforce minimum range (in points, per pair)
-3. **BPR wider than reasonable SL** — max SL distance filter
-4. **Structure flip mid-day** — re-evaluate open trades? (currently: hold until SL/TP)
-5. **Multiple magic numbers on same account** — strict magic number filtering in HasOpenPosition
+| # | Question | Proposed Default | Impact |
+|---|----------|-----------------|--------|
+| 1 | **Wine CLI reliable?** | Must test in Phase 0.5 | Determines if loop is autonomous or semi-manual |
+| 2 | **Same-bar opposing FVGs** | Skip — noise | Edge case for BPR direction |
+| 3 | **BTCUSD session filter** | Same Asia block but with ATR override | May miss valid BTC setups |
+| 4 | **DST handling** | Auto-detect from month/day | Could be wrong by 1 hour during transition weekend |
+| 5 | **BPR max bar gap** | 30 bars (M15) | Too wide = stale matches, too narrow = missed BPRs |
+| 6 | **FVG array size** | 200 per direction | Too small = missed FVGs, too large = slow scanning |
+| 7 | **Spread filter** | Reject entry if spread > 2x average | May block valid entries during volatile periods |
 
 ---
 
-## 10. Risk Profiles
-
-| Profile | Risk/Trade | Use Case | Default R:R |
-|---------|-----------|----------|-------------|
-| Backtest | 1% | Parameter optimization | 2.0 |
-| Medium | 2-3% | Conservative live trading | 2.0 |
-| Aggressive | 5-10% | High-risk live trading | 2.0 |
-
-**Note**: Even "aggressive" should never exceed 10% per trade. With 1:2000 leverage, a 10% risk trade on XAUUSD with a 50-point SL could use 5+ lots — ensure lot size doesn't exceed broker max.
-
----
-
-## 11. Open Questions
-
-1. **Wine CLI automation** — Will `metaeditor64.exe /compile` and `terminal64.exe /config:` work headlessly through Wine on macOS? **Must test in Phase 0.5.**
-
-2. **BPR direction edge case** — When bullish and bearish FVGs form on the exact same bar (e.g., doji with wicks), how do we determine direction? Proposed: skip — same-bar FVGs are noise.
-
-3. **BTCUSD session filtering** — Crypto is 24/7. Do we still apply Asia filter, or use a different approach (e.g., volume-based quiet period detection)?
-
-4. **DST handling** — GTC server likely shifts GMT+2 → GMT+3 in March/November. Should the EA auto-detect DST, or use a fixed offset? Proposed: configurable input, user updates seasonally.
-
----
-
-*Phase 0 research complete. Ready for Phase 0.5 (Diagnostics) upon approval.*
+*Phase 0 deep research complete. Ready for Phase 0.5 (Diagnostics & Wine Validation) upon approval.*
